@@ -1,0 +1,36 @@
+# Rust
+target/
+**/target/
+Cargo.lock.orig
+
+# WebAssembly / wasm-pack
+pkg/
+out1/
+out2/
+*.wasm.map
+
+# Node (якщо з'явиться сторінка з інструментами)
+node_modules/
+
+# Docker / локальні артефакти збірок
+*.tar
+*.tar.gz
+
+# Секрети — НІКОЛИ не комітити
+.env
+*.env
+!*.env.example
+secrets/
+*.pem
+*.key
+
+# Звіти й журнали, що народжуються локально
+incidents.log
+*.log
+
+# Сміття ОС і редакторів
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
