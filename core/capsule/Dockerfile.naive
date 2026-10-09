@@ -1,0 +1,9 @@
+FROM rust:1.79
+
+WORKDIR /project
+
+COPY . .
+
+RUN cargo build --release --locked
+
+ENTRYPOINT ["/project/target/release/camera_audit"]
