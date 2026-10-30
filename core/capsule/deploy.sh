@@ -8,6 +8,21 @@ ISOLATED_BOX="capsule-local"
 HOST_PORT=8080
 SERVICE_PORT=80
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SECRETS_FILE="$SCRIPT_DIR/secrets.env"
+
+MISSION_NETWORK="mission-net"
+MISSION_VOLUME="mission-logs"
+AGENT_BOX="agent"
+STORAGE_BOX="storage"
+AGENT_IMAGE="camera-audit-slim"
+STORAGE_IMAGE="python:3.12-slim"
+
+if [[ ! -f "$SECRETS_FILE" ]]; then
+  echo "Missing $SECRETS_FILE (copy secrets.env.example and set the key)." >&2
+  exit 1
+fi
+
 remove_existing() {
   docker rm -f "$PUBLIC_BOX" "$ISOLATED_BOX" >/dev/null 2>&1 || true
 }
@@ -31,23 +46,23 @@ start_web_server() {
     python3 -m http.server "$SERVICE_PORT"
 }
 
-echo "[1/7] Cleaning previous containers..."
+echo "[1/9] Cleaning previous containers..."
 remove_existing
 
-echo "[2/7] Creating container with published HTTP port..."
+echo "[2/9] Creating container with published HTTP port..."
 docker run -d \
   --name "$PUBLIC_BOX" \
   -p "${HOST_PORT}:${SERVICE_PORT}" \
   "$BASE_IMAGE" \
   sleep infinity >/dev/null
 
-echo "[3/7] Installing development utilities..."
+echo "[3/9] Installing development utilities..."
 install_main_packages
 
-echo "[4/7] Launching HTTP service..."
+echo "[4/9] Launching HTTP service..."
 start_web_server "$PUBLIC_BOX"
 
-echo "[5/7] Creating isolated container..."
+echo "[5/9] Creating isolated container..."
 docker run -d \
   --name "$ISOLATED_BOX" \
   "$BASE_IMAGE" \
@@ -60,7 +75,7 @@ docker exec "$ISOLATED_BOX" bash -c '
 
 start_web_server "$ISOLATED_BOX"
 
-echo "[6/7] Testing access without port publishing..."
+echo "[6/9] Testing access without port publishing..."
 
 # Release port 8080 on the host while the isolated container keeps running.
 docker stop "$PUBLIC_BOX" >/dev/null
@@ -76,7 +91,7 @@ fi
 docker start "$PUBLIC_BOX" >/dev/null
 start_web_server "$PUBLIC_BOX"
 
-echo "[7/7] Waiting for published HTTP service..."
+echo "[7/9] Waiting for published HTTP service..."
 
 ready=false
 
@@ -115,3 +130,33 @@ docker exec "$PUBLIC_BOX" bash -c '
 echo
 echo "Final HTTP response:"
 curl -I "http://localhost:${HOST_PORT}/"
+echo
+echo "[8/9] Creating mission network and shared volume..."
+docker network inspect "$MISSION_NETWORK" >/dev/null 2>&1 \
+  || docker network create --driver bridge "$MISSION_NETWORK" >/dev/null
+docker volume inspect "$MISSION_VOLUME" >/dev/null 2>&1 \
+  || docker volume create "$MISSION_VOLUME" >/dev/null
+
+echo "[9/9] Starting storage and agent..."
+docker rm -f "$AGENT_BOX" "$STORAGE_BOX" >/dev/null 2>&1 || true
+docker build -q -f "$SCRIPT_DIR/Dockerfile.slim" -t "$AGENT_IMAGE" "$SCRIPT_DIR" >/dev/null
+
+# storage serves the shared volume over HTTP (variant N % 4 == 0).
+docker run -d \
+  --name "$STORAGE_BOX" \
+  --network "$MISSION_NETWORK" \
+  -v "$MISSION_VOLUME:/data" \
+  "$STORAGE_IMAGE" \
+  python3 -m http.server 8000 --directory /data >/dev/null
+
+# The capsule entrypoint exits at once, so keep the agent alive with sleep.
+docker run -d \
+  --name "$AGENT_BOX" \
+  --network "$MISSION_NETWORK" \
+  -v "$MISSION_VOLUME:/data" \
+  --env-file "$SECRETS_FILE" \
+  --entrypoint sleep \
+  "$AGENT_IMAGE" \
+  infinity >/dev/null
+
+echo "Mission containers are running on $MISSION_NETWORK."
