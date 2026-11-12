@@ -1,4 +1,5 @@
 use std::env;
+use std::fmt::Write;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
@@ -15,7 +16,11 @@ fn generate_key(seed: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(seed.as_bytes());
     let digest = hasher.finalize();
-    digest.iter().map(|b| format!("{b:02x}")).collect()
+    digest.iter().fold(String::with_capacity(64), |mut hex, b| {
+        // Writing into a String cannot fail.
+        let _ = write!(hex, "{b:02x}");
+        hex
+    })
 }
 
 /// Where the seed for the key comes from.
@@ -47,9 +52,8 @@ fn generate_key_from_source(source: &dyn DataSource) -> String {
 }
 
 fn main() {
-    let data_dir = PathBuf::from(
-        env::var("SIDKIT_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA_DIR.to_string()),
-    );
+    let data_dir =
+        PathBuf::from(env::var("SIDKIT_DATA_DIR").unwrap_or_else(|_| DEFAULT_DATA_DIR.to_string()));
     let source = VolumeSeed {
         path: data_dir.join(SEED_FILE),
     };
@@ -95,7 +99,10 @@ mod tests {
 
     #[test]
     fn generate_key_differs_for_different_seed() {
-        assert_ne!(generate_key("techno-b7-alpha"), generate_key("techno-b7-beta"));
+        assert_ne!(
+            generate_key("techno-b7-alpha"),
+            generate_key("techno-b7-beta")
+        );
     }
 
     #[test]
